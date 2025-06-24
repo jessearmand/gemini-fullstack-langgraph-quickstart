@@ -30,21 +30,52 @@ from agent.utils import (
     insert_citation_markers,
     resolve_urls,
 )
+from langchain_openai import ChatOpenAI
+
 
 load_dotenv()
 
-if os.getenv("GEMINI_API_KEY") is None:
-    raise ValueError("GEMINI_API_KEY is not set")
+# API Key Checks and Client Initialization
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Used for Google Search API
-genai_client = Client(api_key=os.getenv("GEMINI_API_KEY"))
+# Used for Google Search API if Google is the provider
+genai_client = None
+if GEMINI_API_KEY:
+    genai_client = Client(api_key=GEMINI_API_KEY)
+
+
+def get_llm(configurable: Configuration, model_name: str, temperature: float = 0.0, max_retries: int = 2):
+    """Initializes and returns the appropriate Langchain chat model."""
+    if configurable.model_provider == "openai":
+        if not OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is not set for OpenAI provider.")
+        return ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+            max_retries=max_retries,
+            api_key=OPENAI_API_KEY,
+        )
+    elif configurable.model_provider == "google":
+        if not GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is not set for Google provider.")
+        if not genai_client:
+            raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            temperature=temperature,
+            max_retries=max_retries,
+            api_key=GEMINI_API_KEY,
+        )
+    else:
+        raise ValueError(f"Unsupported model provider: {configurable.model_provider}")
 
 
 # Nodes
 def generate_query(state: OverallState, config: RunnableConfig) -> QueryGenerationState:
     """LangGraph node that generates search queries based on the User's question.
 
-    Uses Gemini 2.0 Flash to create an optimized search queries for web research based on
+    Uses the configured LLM to create optimized search queries for web research based on
     the User's question.
 
     Args:
@@ -60,13 +91,7 @@ def generate_query(state: OverallState, config: RunnableConfig) -> QueryGenerati
     if state.get("initial_search_query_count") is None:
         state["initial_search_query_count"] = configurable.number_of_initial_queries
 
-    # init Gemini 2.0 Flash
-    llm = ChatGoogleGenerativeAI(
-        model=configurable.query_generator_model,
-        temperature=1.0,
-        max_retries=2,
-        api_key=os.getenv("GEMINI_API_KEY"),
-    )
+    llm = get_llm(configurable, configurable.query_generator_model, temperature=1.0)
     structured_llm = llm.with_structured_output(SearchQueryList)
 
     # Format the prompt
@@ -163,12 +188,7 @@ def reflection(state: OverallState, config: RunnableConfig) -> ReflectionState:
         summaries="\n\n---\n\n".join(state["web_research_result"]),
     )
     # init Reasoning Model
-    llm = ChatGoogleGenerativeAI(
-        model=reasoning_model,
-        temperature=1.0,
-        max_retries=2,
-        api_key=os.getenv("GEMINI_API_KEY"),
-    )
+    llm = get_llm(configurable, reasoning_model, temperature=1.0)
     result = llm.with_structured_output(Reflection).invoke(formatted_prompt)
 
     return {
@@ -241,13 +261,8 @@ def finalize_answer(state: OverallState, config: RunnableConfig):
         summaries="\n---\n\n".join(state["web_research_result"]),
     )
 
-    # init Reasoning Model, default to Gemini 2.5 Flash
-    llm = ChatGoogleGenerativeAI(
-        model=reasoning_model,
-        temperature=0,
-        max_retries=2,
-        api_key=os.getenv("GEMINI_API_KEY"),
-    )
+    # init Reasoning Model
+    llm = get_llm(configurable, reasoning_model, temperature=0)
     result = llm.invoke(formatted_prompt)
 
     # Replace the short urls with the original urls and add all used urls to the sources_gathered
