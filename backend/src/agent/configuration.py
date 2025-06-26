@@ -64,20 +64,37 @@ class Configuration(BaseModel):
         cls, config: Optional[RunnableConfig] = None
     ) -> "Configuration":
         """Create a Configuration instance from a RunnableConfig."""
-        configurable = (
+        passed_configurable = (
             config["configurable"] if config and "configurable" in config else {}
         )
 
-        # Get raw values from environment or config
-        raw_values: dict[str, Any] = {
-            # Allow model_provider to be set from env or config
-            name: os.environ.get(name.upper()) or configurable.get(name)
-            if name in cls.model_fields else configurable.get(name)
-            for name in list(cls.model_fields.keys()) + ["model_provider"] # Ensure model_provider is checked
-        }
+        # Build the values for Configuration instantiation
+        # Order of precedence:
+        # 1. Values from passed_configurable (from RunnableConfig)
+        # 2. Values from environment variables
+        # 3. Pydantic defaults (applied during cls(**init_values) if not present)
 
-        # Filter out None values before passing to model_validator
-        # The validator will then apply defaults if specific models aren't provided
-        filtered_values = {k: v for k, v in raw_values.items() if v is not None}
+        init_values: dict[str, Any] = {}
 
-        return cls(**filtered_values)
+        # Iterate over all known model fields plus 'model_provider'
+        # to ensure all possible configurations are checked.
+        all_possible_keys = list(cls.model_fields.keys())
+        if "model_provider" not in all_possible_keys: # Should be there due to Field definition
+             all_possible_keys.append("model_provider")
+
+
+        for key in all_possible_keys:
+            if key in passed_configurable and passed_configurable[key] is not None:
+                init_values[key] = passed_configurable[key]
+            elif os.environ.get(key.upper()) is not None:
+                init_values[key] = os.environ.get(key.upper())
+            # If not in passed_configurable or env, it will either use Pydantic default
+            # or be considered missing if no default and not optional.
+
+        # The @model_validator (set_default_models_based_on_provider)
+        # will run *before* field validation, using these init_values.
+        # It expects 'model_provider' to be potentially present in init_values
+        # or it will use its own default ("google") if 'model_provider' is not in init_values.
+        # Then it sets other model defaults based on the resolved 'model_provider'.
+
+        return cls(**init_values)

@@ -33,9 +33,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const thread = useStream<{
     messages: Message[];
-    initial_search_query_count: number;
-    max_research_loops: number;
-    reasoning_model: string;
+    initial_search_query_count: number; // Maps to backend Configuration
+    max_research_loops: number; // Maps to backend Configuration
+    model_provider?: string; // Maps to backend Configuration
+    query_generator_model?: string; // Maps to backend Configuration
+    reflection_model?: string; // Maps to backend Configuration
+    answer_model?: string; // Maps to backend Configuration
   }>({
     apiUrl: import.meta.env.DEV
       ? "http://localhost:2024"
@@ -119,7 +122,7 @@ export default function App() {
   }, [thread.messages, thread.isLoading, processedEventsTimeline]);
 
   const handleSubmit = useCallback(
-    (submittedInputValue: string, effort: string, model: string) => {
+    (submittedInputValue: string, effort: string, modelProvider: string, model: string) => {
       if (!submittedInputValue.trim()) return;
       setProcessedEventsTimeline([]);
       hasFinalizeEventOccurredRef.current = false;
@@ -157,7 +160,10 @@ export default function App() {
         messages: newMessages,
         initial_search_query_count: initial_search_query_count,
         max_research_loops: max_research_loops,
-        reasoning_model: model,
+        model_provider: modelProvider,
+        query_generator_model: model,
+        reflection_model: model,
+        answer_model: model,
       });
     },
     [thread]
