@@ -120,7 +120,7 @@ def continue_to_web_research(state: QueryGenerationState):
 def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
     """LangGraph node that performs web research using the native Google Search API tool.
 
-    Executes a web search using the native Google Search API tool in combination with Gemini 2.5 Flash Lite.
+    Executes a web search using the native Google Search API tool in combination with Gemini 2.0 Flash.
 
     Args:
         state: Current graph state containing the search query and research loop count
@@ -130,15 +130,25 @@ def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
         Dictionary with state update, including sources_gathered, research_loop_count, and web_research_results
     """
     # Configure
-    configurable = Configuration.from_runnable_config(config)
+    # The web_research node specifically uses Google's search tool.
+    # We will hardcode the model for this node to a known Gemini model
+    # to avoid conflicts if the main provider is OpenAI.
+    # The overall agent configuration (model_provider, other models) is still respected by other nodes.
+    _ = Configuration.from_runnable_config(config) # Load config to respect other settings if any, but model is fixed here.
+
+    web_research_model = "gemini-2.5-flash-lite-preview-06-17" # Hardcoded Gemini model for this node
+
     formatted_prompt = web_searcher_instructions.format(
         current_date=get_current_date(),
         research_topic=state["search_query"],
     )
 
+    if not genai_client:
+        raise ValueError("Gemini client not initialized. Cannot perform web research. Check GEMINI_API_KEY.")
+
     # Uses the google genai client as the langchain client doesn't return grounding metadata
     response = genai_client.models.generate_content(
-        model=configurable.query_generator_model,
+        model=web_research_model, # Use the hardcoded Gemini model
         contents=formatted_prompt,
         config={
             "tools": [{"google_search": {}}],

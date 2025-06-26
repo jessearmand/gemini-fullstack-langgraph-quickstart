@@ -12,7 +12,7 @@ import {
 
 // Model definitions
 const googleModels = [
-  { value: "gemini-2.5-flash-lite-preview-06-17", label: "2.5 Flash Lite", icon: <Zap className="h-4 w-4 mr-2 text-yellow-400" /> },
+  { value: "gemini-2.5-flash-lite-preview-06-17", label: "2.0 Flash", icon: <Zap className="h-4 w-4 mr-2 text-yellow-400" /> },
   { value: "gemini-2.5-flash", label: "2.5 Flash", icon: <Zap className="h-4 w-4 mr-2 text-orange-400" /> },
   { value: "gemini-2.5-pro", label: "2.5 Pro", icon: <Cpu className="h-4 w-4 mr-2 text-purple-400" /> },
 ];
