@@ -1,4 +1,5 @@
 import os
+import logging
 from pydantic import BaseModel, Field, model_validator
 from typing import Any, Optional
 
@@ -64,37 +65,44 @@ class Configuration(BaseModel):
         cls, config: Optional[RunnableConfig] = None
     ) -> "Configuration":
         """Create a Configuration instance from a RunnableConfig."""
-        passed_configurable = (
-            config["configurable"] if config and "configurable" in config else {}
-        )
+        # config is the RunnableConfig object. It can behave like a dictionary.
+        logging.debug(f"[DEBUG Configuration.from_runnable_config] Received full config object: {config}")
 
-        # Build the values for Configuration instantiation
-        # Order of precedence:
-        # 1. Values from passed_configurable (from RunnableConfig)
-        # 2. Values from environment variables
-        # 3. Pydantic defaults (applied during cls(**init_values) if not present)
+        # Source 1: config.get("configurable", {}) - the nested dictionary
+        cfg_from_nested = config.get("configurable", {}) if config else {}
+        logging.debug(f"[DEBUG Configuration.from_runnable_config] Content of config.get('configurable', {{}}): {cfg_from_nested}")
+
+        # Source 2: Top-level keys of the config object itself.
+        # langgraph-cli might place keys here if they are part of config_schema.
+        cfg_from_top_level = {}
+        if isinstance(config, dict): # RunnableConfig often acts as a dict
+            for schema_key in list(cls.model_fields.keys()):
+                if schema_key in config and config[schema_key] is not None:
+                    cfg_from_top_level[schema_key] = config[schema_key]
+        logging.debug(f"[DEBUG Configuration.from_runnable_config] Content from top-level of config object: {cfg_from_top_level}")
 
         init_values: dict[str, Any] = {}
 
-        # Iterate over all known model fields plus 'model_provider'
-        # to ensure all possible configurations are checked.
-        all_possible_keys = list(cls.model_fields.keys())
-        if "model_provider" not in all_possible_keys: # Should be there due to Field definition
-             all_possible_keys.append("model_provider")
+        # Populate init_values, giving precedence:
+        # 1. Nested config["configurable"] (cfg_from_nested)
+        # 2. Top-level keys in config object (cfg_from_top_level)
+        # 3. Environment variables
+        # 4. Pydantic field defaults (applied during cls(**init_values) if not set by above)
+
+        for key in list(cls.model_fields.keys()):
+            val_from_nested = cfg_from_nested.get(key)
+            val_from_top_level = cfg_from_top_level.get(key)
+            val_from_env = os.environ.get(key.upper()) # For model_provider, specifically check MODEL_PROVIDER
+            if key == "model_provider" and not val_from_env: # common to use MODEL_PROVIDER
+                val_from_env = os.environ.get("MODEL_PROVIDER")
 
 
-        for key in all_possible_keys:
-            if key in passed_configurable and passed_configurable[key] is not None:
-                init_values[key] = passed_configurable[key]
-            elif os.environ.get(key.upper()) is not None:
-                init_values[key] = os.environ.get(key.upper())
-            # If not in passed_configurable or env, it will either use Pydantic default
-            # or be considered missing if no default and not optional.
+            if val_from_nested is not None:
+                init_values[key] = val_from_nested
+            elif val_from_top_level is not None:
+                init_values[key] = val_from_top_level
+            elif val_from_env is not None:
+                init_values[key] = val_from_env
 
-        # The @model_validator (set_default_models_based_on_provider)
-        # will run *before* field validation, using these init_values.
-        # It expects 'model_provider' to be potentially present in init_values
-        # or it will use its own default ("google") if 'model_provider' is not in init_values.
-        # Then it sets other model defaults based on the resolved 'model_provider'.
-
+        logging.debug(f"[DEBUG Configuration.from_runnable_config] Final init_values for Pydantic: {init_values}")
         return cls(**init_values)

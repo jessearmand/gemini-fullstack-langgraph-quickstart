@@ -226,10 +226,17 @@ interface ChatMessagesViewProps {
   messages: Message[];
   isLoading: boolean;
   scrollAreaRef: React.RefObject<HTMLDivElement | null>;
-  onSubmit: (inputValue: string, effort: string, model: string) => void;
+  onSubmit: (
+    inputValue: string,
+    effort: string,
+    modelProvider: string,
+    model: string
+  ) => void;
   onCancel: () => void;
   liveActivityEvents: ProcessedEvent[];
   historicalActivities: Record<string, ProcessedEvent[]>;
+  initialModelProvider: string;
+  initialModel: string;
 }
 
 export function ChatMessagesView({
@@ -240,6 +247,8 @@ export function ChatMessagesView({
   onCancel,
   liveActivityEvents,
   historicalActivities,
+  initialModelProvider,
+  initialModel,
 }: ChatMessagesViewProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
@@ -316,6 +325,8 @@ export function ChatMessagesView({
         isLoading={isLoading}
         onCancel={onCancel}
         hasHistory={messages.length > 0}
+        initialModelProvider={initialModelProvider}
+        initialModel={initialModel}
       />
     </div>
   );

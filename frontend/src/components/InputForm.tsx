@@ -26,10 +26,25 @@ const openAIModels = [
 
 // Updated InputFormProps
 interface InputFormProps {
-  onSubmit: (inputValue: string, effort: string, modelProvider: string, model: string) => void;
+  onSubmit: (
+    inputValue: string,
+    effort: string,
+    modelProvider: string,
+    model: string
+  ) => void;
   onCancel: () => void;
   isLoading: boolean;
   hasHistory: boolean;
+  /**
+   * Initial provider to display when the component mounts.
+   * Allows the parent component (App) to preserve the last user selection
+   * across unmount / remount cycles (e.g. WelcomeScreen -> ChatMessagesView).
+   */
+  initialModelProvider?: string;
+  /**
+   * Initial model to display when the component mounts.
+   */
+  initialModel?: string;
 }
 
 export const InputForm: React.FC<InputFormProps> = ({
@@ -37,18 +52,32 @@ export const InputForm: React.FC<InputFormProps> = ({
   onCancel,
   isLoading,
   hasHistory,
+  initialModelProvider = "google",
+  initialModel,
 }) => {
   const [internalInputValue, setInternalInputValue] = useState("");
   const [effort, setEffort] = useState("medium");
-  const [modelProvider, setModelProvider] = useState("google"); // Default to Google
-  const [model, setModel] = useState(googleModels[1].value); // Default to Gemini 2.5 Flash
+  const [modelProvider, setModelProvider] = useState(initialModelProvider);
+  // Determine default model if none provided
+  const defaultModel = () => {
+    if (initialModel) return initialModel;
+    return initialModelProvider === "google"
+      ? googleModels[1].value // Gemini 2.5 Flash
+      : openAIModels[0].value; // GPT-4.1
+  };
+  const [model, setModel] = useState<string>(defaultModel());
 
   // Update available models when provider changes
+  // When the provider changes, ensure the selected model belongs to the provider.
   useEffect(() => {
-    if (modelProvider === "google") {
-      setModel(googleModels[1].value); // Default to Gemini 2.5 Flash
-    } else if (modelProvider === "openai") {
-      setModel(openAIModels[0].value); // Default to GPT-4.1
+    const allowedModels =
+      modelProvider === "google" ? googleModels : openAIModels;
+    const isModelAllowed = allowedModels.some((m) => m.value === model);
+    if (!isModelAllowed) {
+      // Fall back to a sensible default for the chosen provider
+      setModel(
+        modelProvider === "google" ? googleModels[1].value : openAIModels[0].value,
+      );
     }
   }, [modelProvider]);
 

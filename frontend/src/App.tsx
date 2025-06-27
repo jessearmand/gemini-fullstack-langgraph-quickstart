@@ -25,6 +25,14 @@ export default function App() {
   const [processedEventsTimeline, setProcessedEventsTimeline] = useState<
     ProcessedEvent[]
   >([]);
+  // Persist the user's last-selected provider & model so that the
+  // InputForm keeps showing the same choices after the first submission
+  const [selectedModelProvider, setSelectedModelProvider] = useState<string>(
+    "google"
+  );
+  const [selectedModel, setSelectedModel] = useState<string>(
+    "gemini-2.5-flash"
+  );
   const [historicalActivities, setHistoricalActivities] = useState<
     Record<string, ProcessedEvent[]>
   >({});
@@ -122,12 +130,21 @@ export default function App() {
   }, [thread.messages, thread.isLoading, processedEventsTimeline]);
 
   const handleSubmit = useCallback(
-    (submittedInputValue: string, effort: string, modelProvider: string, model: string) => {
+    (
+      submittedInputValue: string,
+      effort: string,
+      modelProvider: string,
+      model: string
+    ) => {
       if (!submittedInputValue.trim()) return;
       setProcessedEventsTimeline([]);
       hasFinalizeEventOccurredRef.current = false;
 
-      // convert effort to, initial_search_query_count and max_research_loops
+      // Persist user selections for the next InputForm mount
+      setSelectedModelProvider(modelProvider);
+      setSelectedModel(model);
+
+      // convert effort to initial_search_query_count and max_research_loops
       // low means max 1 loop and 1 query
       // medium means max 3 loops and 3 queries
       // high means max 10 loops and 5 queries
@@ -156,15 +173,25 @@ export default function App() {
           id: Date.now().toString(),
         },
       ];
-      thread.submit({
-        messages: newMessages,
-        initial_search_query_count: initial_search_query_count,
-        max_research_loops: max_research_loops,
-        model_provider: modelProvider,
-        query_generator_model: model,
-        reflection_model: model,
-        answer_model: model,
-      });
+      thread.submit(
+        {
+          // -------------- graph INPUT (state) --------------
+          messages: newMessages,
+          initial_search_query_count,
+          max_research_loops,
+        },
+        {
+          // -------------- graph CONFIG ---------------------
+          config: {
+            configurable: {
+              model_provider:       modelProvider,
+              query_generator_model: model,
+              reflection_model:      model,
+              answer_model:          model,
+            },
+          },
+        },
+      );
     },
     [thread]
   );
@@ -182,6 +209,8 @@ export default function App() {
               handleSubmit={handleSubmit}
               isLoading={thread.isLoading}
               onCancel={handleCancel}
+              initialModelProvider={selectedModelProvider}
+              initialModel={selectedModel}
             />
           ) : error ? (
             <div className="flex flex-col items-center justify-center h-full">
@@ -206,6 +235,8 @@ export default function App() {
               onCancel={handleCancel}
               liveActivityEvents={processedEventsTimeline}
               historicalActivities={historicalActivities}
+              initialModelProvider={selectedModelProvider}
+              initialModel={selectedModel}
             />
           )}
       </main>

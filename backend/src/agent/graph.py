@@ -1,4 +1,5 @@
 import os
+import logging
 
 from agent.tools_and_schemas import SearchQueryList, Reflection
 from dotenv import load_dotenv
@@ -47,6 +48,12 @@ if GEMINI_API_KEY:
 
 def get_llm(configurable: Configuration, model_name: str, temperature: float = 0.0, max_retries: int = 2):
     """Initializes and returns the appropriate Langchain chat model."""
+    # --- BEGIN DIAGNOSTIC PRINT ---
+    logging.debug(f"[DEBUG get_llm] Received Configuration instance with model_provider: '{configurable.model_provider}'")
+    logging.debug(f"[DEBUG get_llm] Attempting to use model_name: '{model_name}'")
+    logging.debug(f"[DEBUG get_llm] Full Configuration state: query_gen='{configurable.query_generator_model}', reflection='{configurable.reflection_model}', answer='{configurable.answer_model}'")
+    # --- END DIAGNOSTIC PRINT ---
+
     if configurable.model_provider == "openai":
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is not set for OpenAI provider.")
