@@ -19,6 +19,8 @@ dependencies = [
     "fastapi",
     "google-genai",
     "langchain-openai>=0.1.0", # Added langchain-openai with a common version constraint
+    "tiktoken>=0.8.0",
+    "langchain-text-splitters>=0.3.0",
 ]
 
 

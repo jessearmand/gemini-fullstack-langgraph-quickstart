@@ -32,6 +32,13 @@ from agent.utils import (
     resolve_urls,
 )
 from langchain_openai import ChatOpenAI
+from agent.token_utils import (
+    needs_token_splitting,
+    split_prompt_for_model,
+    aggregate_responses,
+    log_token_usage,
+    MODELS_REQUIRING_SPLITTING,
+)
 
 
 load_dotenv()
@@ -46,34 +53,117 @@ if GEMINI_API_KEY:
     genai_client = Client(api_key=GEMINI_API_KEY)
 
 
+class TokenAwareLLM:
+    """Wrapper for LLMs that handles token splitting for OpenAI models."""
+
+    def __init__(self, llm, model_name: str, enable_splitting: bool = True):
+        self.llm = llm
+        self.model_name = model_name
+        self.enable_splitting = enable_splitting
+        self.is_openai_model = model_name in MODELS_REQUIRING_SPLITTING
+
+    def invoke(self, prompt: str):
+        """Invoke the LLM with automatic token splitting if needed."""
+        # Log token usage for debugging
+        log_token_usage(self.model_name, prompt)
+
+        # Check if we need to split for this model
+        if not self.is_openai_model or not self.enable_splitting:
+            return self.llm.invoke(prompt)
+
+        # Check if splitting is needed
+        prompt_chunks, was_split = split_prompt_for_model(prompt, self.model_name)
+
+        if not was_split:
+            return self.llm.invoke(prompt)
+
+        # Process each chunk and aggregate results
+        logging.info(f"Processing {len(prompt_chunks)} prompt chunks for {self.model_name}")
+        responses = []
+
+        for i, chunk in enumerate(prompt_chunks):
+            logging.debug(f"Processing chunk {i+1}/{len(prompt_chunks)} for {self.model_name}")
+            response = self.llm.invoke(chunk)
+            responses.append(response.content if hasattr(response, 'content') else str(response))
+
+        # Aggregate responses
+        aggregated_content = aggregate_responses(responses)
+
+        # Log split operation for debugging
+        split_info = {
+            "model": self.model_name,
+            "chunks": len(prompt_chunks),
+        }
+        logging.info(f"Token split performed: {split_info}")
+
+        # Return a response object similar to the original
+        class AggregatedResponse:
+            def __init__(self, content):
+                self.content = content
+
+        return AggregatedResponse(aggregated_content)
+
+    def with_structured_output(self, schema):
+        """Return a structured output version that handles token splitting."""
+        structured_llm = self.llm.with_structured_output(schema)
+
+        class TokenAwareStructuredLLM:
+            def __init__(self, structured_llm, model_name: str, enable_splitting: bool = True):
+                self.structured_llm = structured_llm
+                self.model_name = model_name
+                self.enable_splitting = enable_splitting
+                self.is_openai_model = model_name in MODELS_REQUIRING_SPLITTING
+
+            def invoke(self, prompt: str):
+                """Invoke structured LLM with token handling."""
+                # Log token usage
+                log_token_usage(self.model_name, prompt)
+
+                # For structured output, we don't split prompts as it might break the JSON structure
+                # Instead, we just warn if the prompt is too long
+                if self.is_openai_model and needs_token_splitting(self.model_name, prompt):
+                    logging.warning(f"Prompt may exceed token limit for {self.model_name} in structured output mode")
+
+                return self.structured_llm.invoke(prompt)
+
+        return TokenAwareStructuredLLM(structured_llm, self.model_name, self.enable_splitting)
+
+
 def get_llm(configurable: Configuration, model_name: str, temperature: float = 0.0, max_retries: int = 2):
-    """Initializes and returns the appropriate Langchain chat model."""
-    # --- BEGIN DIAGNOSTIC PRINT ---
+    """Initializes and returns the appropriate Langchain chat model with token awareness."""
+
     logging.debug(f"[DEBUG get_llm] Received Configuration instance with model_provider: '{configurable.model_provider}'")
     logging.debug(f"[DEBUG get_llm] Attempting to use model_name: '{model_name}'")
     logging.debug(f"[DEBUG get_llm] Full Configuration state: query_gen='{configurable.query_generator_model}', reflection='{configurable.reflection_model}', answer='{configurable.answer_model}'")
-    # --- END DIAGNOSTIC PRINT ---
 
     if configurable.model_provider == "openai":
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is not set for OpenAI provider.")
-        return ChatOpenAI(
+        if model_name == "o4-mini" or model_name == "o3":
+            temperature = 1.0
+        base_llm = ChatOpenAI(
             model=model_name,
             temperature=temperature,
             max_retries=max_retries,
             api_key=OPENAI_API_KEY,
         )
+        # Wrap with token-aware functionality for OpenAI models
+        return TokenAwareLLM(base_llm, model_name, configurable.enable_token_splitting)
+
     elif configurable.model_provider == "google":
         if not GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not set for Google provider.")
         if not genai_client:
             raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
-        return ChatGoogleGenerativeAI(
+        base_llm = ChatGoogleGenerativeAI(
             model=model_name,
             temperature=temperature,
             max_retries=max_retries,
             api_key=GEMINI_API_KEY,
         )
+        # Google models don't need token splitting, but wrap for consistency
+        return TokenAwareLLM(base_llm, model_name, False)
+
     else:
         raise ValueError(f"Unsupported model provider: {configurable.model_provider}")
 

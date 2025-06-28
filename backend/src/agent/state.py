@@ -19,6 +19,8 @@ class OverallState(TypedDict):
     max_research_loops: int
     research_loop_count: int
     reasoning_model: str
+    # Optional token tracking metadata
+    token_splits_performed: Annotated[list, operator.add]  # Track when token splitting occurred
 
 
 class ReflectionState(TypedDict):

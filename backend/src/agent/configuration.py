@@ -45,6 +45,11 @@ class Configuration(BaseModel):
         metadata={"description": "The maximum number of research loops to perform."},
     )
 
+    enable_token_splitting: bool = Field(
+        default=True,
+        metadata={"description": "Enable automatic token splitting for OpenAI models with token limits."},
+    )
+
     @model_validator(mode="before")
     def set_default_models_based_on_provider(cls, values: dict[str, Any]) -> dict[str, Any]:
         """Set default model names based on the model_provider."""
